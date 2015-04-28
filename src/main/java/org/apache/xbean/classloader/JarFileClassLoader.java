@@ -20,12 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
-import java.security.AccessControlContext;
-import java.security.AccessController;
 import java.security.CodeSource;
-import java.security.PrivilegedAction;
-import java.security.PrivilegedActionException;
-import java.security.PrivilegedExceptionAction;
 import java.security.cert.Certificate;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -46,7 +41,6 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	private static final URL[] EMPTY_URLS = new URL[0];
 
 	private UrlResourceFinder resourceFinder;
-	private AccessControlContext accessControlContext;
 
 	/**
 	 * Creates a JarFileClassLoader that is a child of the system class loader.
@@ -142,7 +136,6 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	 * @param urls
 	 */
 	protected void initialize(URL[] urls) {
-		this.accessControlContext = AccessController.getContext();
 		setResourceFinder(newResourceFinder());
 		if (addUrlsOnInitialize()) {
 			addURLs(urls);
@@ -182,12 +175,7 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	 * {@inheritDoc}
 	 */
 	public void addURL(final URL url) {
-		AccessController.doPrivileged(new PrivilegedAction<Object>() {
-			public Object run() {
-				resourceFinder.addUrl(url);
-				return null;
-			}
-		}, accessControlContext);
+		resourceFinder.addUrl(url);
 	}
 
 	/**
@@ -195,12 +183,7 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	 * @param urls the URLs to add
 	 */
 	protected void addURLs(final URL[] urls) {
-		AccessController.doPrivileged(new PrivilegedAction<Object>() {
-			public Object run() {
-				resourceFinder.addUrls(urls);
-				return null;
-			}
-		}, accessControlContext);
+		resourceFinder.addUrls(urls);
 	}
 
 	/**
@@ -215,11 +198,7 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	 * {@inheritDoc}
 	 */
 	public URL findResource(final String resourceName) {
-		return (URL) AccessController.doPrivileged(new PrivilegedAction<Object>() {
-			public Object run() {
-				return resourceFinder.findResource(resourceName);
-			}
-		}, accessControlContext);
+		return resourceFinder.findResource(resourceName);
 	}
 
 	/**
@@ -230,11 +209,7 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 		Enumeration<URL> parentResources = super.findResources(resourceName);
 
 		// get the classes from my urls
-		Enumeration<URL> myResources = AccessController.doPrivileged(new PrivilegedAction<Enumeration<URL>>() {
-			public Enumeration<URL> run() {
-				return resourceFinder.findResources(resourceName);
-			}
-		}, accessControlContext);
+		Enumeration<URL> myResources = resourceFinder.findResources(resourceName);
 
 		// join the two together
 		Enumeration<URL> resources = new UnionEnumeration<URL>(parentResources, myResources);
@@ -262,12 +237,7 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 		}
 
 		// get a resource handle to the library
-		ResourceHandle resourceHandle = AccessController.doPrivileged(new PrivilegedAction<ResourceHandle>() {
-			public ResourceHandle run() {
-				return resourceFinder.getResource(resourceName);
-			}
-		}, accessControlContext);
-
+		ResourceHandle resourceHandle = resourceFinder.getResource(resourceName);
 		if (resourceHandle == null) {
 			return null;
 		}
@@ -286,61 +256,53 @@ public class JarFileClassLoader extends MultiParentClassLoader {
 	 * {@inheritDoc}
 	 */
 	protected Class<?> findClass(final String className) throws ClassNotFoundException {
-		try {
-			return AccessController.doPrivileged(new PrivilegedExceptionAction<Class<?>>() {
-				public Class<?> run() throws ClassNotFoundException {
-					// first think check if we are allowed to define the package
-					SecurityManager securityManager = System.getSecurityManager();
-					if (securityManager != null) {
-						String packageName;
-						int packageEnd = className.lastIndexOf('.');
-						if (packageEnd >= 0) {
-							packageName = className.substring(0, packageEnd);
-							securityManager.checkPackageDefinition(packageName);
-						}
-					}
-
-					// convert the class name to a file name
-					String resourceName = className.replace('.', '/') + ".class";
-
-					// find the class file resource
-					ResourceHandle resourceHandle = resourceFinder.getResource(resourceName);
-					if (resourceHandle == null) {
-						throw new ClassNotFoundException(className);
-					}
-
-					byte[] bytes;
-					Manifest manifest;
-					try {
-						// get the bytes from the class file
-						bytes = resourceHandle.getBytes();
-
-						// get the manifest for defining the packages
-						manifest = resourceHandle.getManifest();
-					} catch (IOException e) {
-						throw new ClassNotFoundException(className, e);
-					}
-
-					// get the certificates for the code source
-					Certificate[] certificates = resourceHandle.getCertificates();
-
-					// the code source url is used to define the package and as the security context for the class
-					URL codeSourceUrl = resourceHandle.getCodeSourceUrl();
-
-					// define the package (required for security)
-					definePackage(className, codeSourceUrl, manifest);
-
-					// this is the security context of the class
-					CodeSource codeSource = new CodeSource(codeSourceUrl, certificates);
-
-					// load the class into the vm
-					Class<?> clazz = defineClass(className, bytes, 0, bytes.length, codeSource);
-					return clazz;
-				}
-			}, accessControlContext);
-		} catch (PrivilegedActionException e) {
-			throw (ClassNotFoundException) e.getException();
+		// first think check if we are allowed to define the package
+		SecurityManager securityManager = System.getSecurityManager();
+		if (securityManager != null) {
+			String packageName;
+			int packageEnd = className.lastIndexOf('.');
+			if (packageEnd >= 0) {
+				packageName = className.substring(0, packageEnd);
+				securityManager.checkPackageDefinition(packageName);
+			}
 		}
+
+		// convert the class name to a file name
+		String resourceName = className.replace('.', '/') + ".class";
+
+		// find the class file resource
+		ResourceHandle resourceHandle = resourceFinder.getResource(resourceName);
+		if (resourceHandle == null) {
+			throw new ClassNotFoundException(className);
+		}
+
+		byte[] bytes;
+		Manifest manifest;
+		try {
+			// get the bytes from the class file
+			bytes = resourceHandle.getBytes();
+
+			// get the manifest for defining the packages
+			manifest = resourceHandle.getManifest();
+		} catch (IOException e) {
+			throw new ClassNotFoundException(className, e);
+		}
+
+		// get the certificates for the code source
+		Certificate[] certificates = resourceHandle.getCertificates();
+
+		// the code source url is used to define the package and as the security context for the class
+		URL codeSourceUrl = resourceHandle.getCodeSourceUrl();
+
+		// define the package (required for security)
+		definePackage(className, codeSourceUrl, manifest);
+
+		// this is the security context of the class
+		CodeSource codeSource = new CodeSource(codeSourceUrl, certificates);
+
+		// load the class into the vm
+		Class<?> clazz = defineClass(className, bytes, 0, bytes.length, codeSource);
+		return clazz;
 	}
 
 	private void definePackage(String className, URL jarUrl, Manifest manifest) {
