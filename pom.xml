@@ -22,7 +22,7 @@
 	<packaging>jar</packaging>
 	<name>Apache XBean :: Classloader</name>
 	<description>xbean-classloader includes a flexibie multi-parent classloader</description>
-	<version>3.7</version>
+	<version>4.2</version>
 	<build>
 		<defaultGoal>install</defaultGoal>
 		<plugins>
