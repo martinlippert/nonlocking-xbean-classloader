@@ -33,12 +33,16 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 /**
  * @author Dain Sundstrom
+ * @author Martin Lippert (changed locking to use ReentrantReadWriteLock)
  */
 public class UrlResourceFinder implements ResourceFinder {
 
@@ -48,8 +52,10 @@ public class UrlResourceFinder implements ResourceFinder {
 		}
 	};
 
-	private final Object lock = new Object();
-
+	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+	private final ReadLock rl = lock.readLock();
+	private final WriteLock wl = lock.writeLock();
+	
 	private final LinkedHashSet<URL> urls = new LinkedHashSet<URL>();
 	private final LinkedHashMap<URL, ResourceLocation> classPath = new LinkedHashMap<URL, ResourceLocation>();
 	private final LinkedHashSet<File> watchedFiles = new LinkedHashSet<File>();
@@ -71,7 +77,9 @@ public class UrlResourceFinder implements ResourceFinder {
 	}
 
 	public void destroy() {
-		synchronized (lock) {
+		try {
+			wl.lock();
+
 			if (destroyed) {
 				return;
 			}
@@ -83,10 +91,15 @@ public class UrlResourceFinder implements ResourceFinder {
 			}
 			classPath.clear();
 		}
+		finally {
+			wl.unlock();
+		}
 	}
 
 	public ResourceHandle getResource(String resourceName) {
-		synchronized (lock) {
+		try {
+			rl.lock();
+
 			if (destroyed) {
 				return null;
 			}
@@ -100,11 +113,16 @@ public class UrlResourceFinder implements ResourceFinder {
 				}
 			}
 		}
+		finally {
+			rl.unlock();
+		}
 		return null;
 	}
 
 	public URL findResource(String resourceName) {
-		synchronized (lock) {
+		try {
+			rl.lock();
+		
 			if (destroyed) {
 				return null;
 			}
@@ -118,12 +136,19 @@ public class UrlResourceFinder implements ResourceFinder {
 				}
 			}
 		}
+		finally {
+			rl.unlock();
+		}
 		return null;
 	}
 
 	public Enumeration<URL> findResources(String resourceName) {
-		synchronized (lock) {
+		try {
+			rl.lock();
 			return new ResourceEnumeration(new ArrayList<ResourceLocation>(getClassPath().values()), resourceName);
+		}
+		finally {
+			rl.unlock();
 		}
 	}
 
@@ -132,8 +157,12 @@ public class UrlResourceFinder implements ResourceFinder {
 	}
 
 	public URL[] getUrls() {
-		synchronized (lock) {
+		try {
+			rl.lock();
 			return urls.toArray(new URL[urls.size()]);
+		}
+		finally {
+			rl.unlock();
 		}
 	}
 
@@ -150,7 +179,9 @@ public class UrlResourceFinder implements ResourceFinder {
 	 * @param urls the URLs to add
 	 */
 	protected void addUrls(List<URL> urls) {
-		synchronized (lock) {
+		try {
+			wl.lock();
+
 			if (destroyed) {
 				throw new IllegalStateException("UrlResourceFinder has been destroyed");
 			}
@@ -160,17 +191,29 @@ public class UrlResourceFinder implements ResourceFinder {
 				rebuildClassPath();
 			}
 		}
+		finally {
+			wl.unlock();
+		}
 	}
 
 	private LinkedHashMap<URL, ResourceLocation> getClassPath() {
-		assert Thread.holdsLock(lock) : "This method can only be called while holding the lock";
-
-		for (Iterator<File> iterator = watchedFiles.iterator(); iterator.hasNext();) {
-			File file = iterator.next();
-			if (file.canRead()) {
-				rebuildClassPath();
-				break;
+		try {
+			rl.lock();
+			
+			for (Iterator<File> iterator = watchedFiles.iterator(); iterator.hasNext();) {
+				File file = iterator.next();
+				if (file.canRead()) {
+					rl.unlock();
+					wl.lock();
+					rebuildClassPath();
+					wl.unlock();
+					rl.lock();
+					break;
+				}
 			}
+		}
+		finally {
+			rl.unlock();
 		}
 
 		return classPath;
@@ -182,7 +225,7 @@ public class UrlResourceFinder implements ResourceFinder {
 	 * path. If any file based url is does not exist, we will watch for that file to appear.
 	 */
 	private void rebuildClassPath() {
-		assert Thread.holdsLock(lock) : "This method can only be called while holding the lock";
+		assert wl.isHeldByCurrentThread() : "This method can only be called while holding the lock";
 
 		// copy all of the existing locations into a temp map and clear the class path
 		Map<URL, ResourceLocation> existingJarFiles = new LinkedHashMap<URL, ResourceLocation>(classPath);
