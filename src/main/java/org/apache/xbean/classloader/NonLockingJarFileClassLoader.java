@@ -16,16 +16,8 @@
  */
 package org.apache.xbean.classloader;
 
-import java.io.File;
-import java.io.IOException;
-import java.lang.ref.SoftReference;
 import java.net.URL;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.jar.JarFile;
-
-import org.apache.xbean.classloader.UrlResourceFinder.JarFileFactory;
 
 /**
  * A variation of {@link JarFileClassLoader} that never locks underlying JAR files, allowing JARs to be deleted even if
@@ -34,22 +26,17 @@ import org.apache.xbean.classloader.UrlResourceFinder.JarFileFactory;
  * @author Phillip Webb
  */
 public class NonLockingJarFileClassLoader extends JarFileClassLoader {
-
-	private static final JarFileFactory JAR_FILE_FACTORY = new JarFileFactory() {
-
-		private Map<File, SoftReference<NonLockingJarFile>> jarFileCache = new HashMap<File, SoftReference<NonLockingJarFile>>();
-
-		public JarFile newJarFile(File file) throws IOException {
-			SoftReference<NonLockingJarFile> cached = jarFileCache.get(file);
-			NonLockingJarFile rtn = (cached == null ? null : cached.get());
-			if (rtn == null) {
-				rtn = new NonLockingJarFile(file);
-				jarFileCache.put(file, new SoftReference<NonLockingJarFile>(rtn));
-			}
-			return rtn;
-		}
-	};
-
+	
+	private static final NonLockingJarFileFactory JAR_FILE_FACTORY = new NonLockingJarFileFactory();
+	
+	public static final void setCheckForUpdates(boolean checkForUpdates) {
+		JAR_FILE_FACTORY.setCheckForUpdates(checkForUpdates);
+	}
+	
+	public static final void flushCache() {
+		JAR_FILE_FACTORY.flushCache();
+	}
+	
 	public NonLockingJarFileClassLoader(String name, URL[] urls, ClassLoader parent, boolean inverseClassLoading,
 			String[] hiddenClasses, String[] nonOverridableClasses) {
 		super(name, urls, parent, inverseClassLoading, hiddenClasses, nonOverridableClasses);

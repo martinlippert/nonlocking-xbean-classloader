@@ -54,6 +54,8 @@ public class NonLockingJarFile extends JarFile {
 	private JarEntry manifestJarEntry;
 
 	private SoftReference<Manifest> manifestRef;
+	
+	private boolean checkForUpdates;
 
 	/**
 	 * Creates a new <code>NonLockingJarFile</code> to read from the specified file <code>name</code>. The
@@ -113,6 +115,15 @@ public class NonLockingJarFile extends JarFile {
 		super(file, verify, mode);
 		initialize(file, verify, mode);
 	}
+	
+	/**
+	 * set the mode whether this NonLockingJarFile should check the underlying
+	 * file for possible changes before accessing it or not
+	 * @param checkForUpdates whether to check the underlying file for changes on access
+	 */
+	public void setCheckForUpdates(boolean checkForUpdates) {
+		this.checkForUpdates = checkForUpdates;
+	}
 
 	/**
 	 * Initialize method called from all constructors to initialize the class.
@@ -144,12 +155,14 @@ public class NonLockingJarFile extends JarFile {
 	}
 
 	private void clearJarEntryCacheIfFileHasChanged() {
-		long lastModified = file.lastModified();
-		if (previousLastModified == null || previousLastModified.longValue() != lastModified) {
-			previousLastModified = new Long(lastModified);
-			jarEntryCache = null;
-			manifestJarEntry = null;
-			manifestRef = null;
+		if (checkForUpdates) {
+			long lastModified = file.lastModified();
+			if (previousLastModified == null || previousLastModified.longValue() != lastModified) {
+				previousLastModified = new Long(lastModified);
+				jarEntryCache = null;
+				manifestJarEntry = null;
+				manifestRef = null;
+			}
 		}
 	}
 
